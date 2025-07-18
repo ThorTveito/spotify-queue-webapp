@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request, session, jsonify
+from flask import Flask, redirect, request, session, jsonify, render_template
 import requests
 import time
 import os
@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import urllib.parse
 
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.secret_key = os.urandom(24)
 
 load_dotenv()  # load values from .env into environment variables
@@ -115,62 +115,6 @@ def get_access_token():
     return access_token
 
 
-@app.route('/search-ui')
-def search_ui():
-    return '''
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <title>Spotify Queue</title>
-    </head>
-    <body>
-      <h1>Search Spotify and Queue a Track</h1>
-      <input type="text" id="searchInput" placeholder="Search for a track" />
-      <button onclick="search()">Search</button>
-      <div id="results"></div>
-
-      <script>
-      async function search() {
-        const query = document.getElementById('searchInput').value;
-        const res = await fetch('/search?q=' + encodeURIComponent(query));
-        if (!res.ok) {
-          alert('Search failed: ' + res.status);
-          return;
-        }
-        const data = await res.json();
-        const tracks = data.tracks.items;
-        const resultsDiv = document.getElementById('results');
-        resultsDiv.innerHTML = '';
-
-        tracks.forEach(track => {
-          const div = document.createElement('div');
-          div.innerHTML = `
-            <strong>${track.name}</strong> by ${track.artists.map(a => a.name).join(', ')}
-            <button onclick="queueTrack('${track.uri}')">Queue</button>
-          `;
-          resultsDiv.appendChild(div);
-        });
-      }
-
-      async function queueTrack(uri) {
-        const res = await fetch('/queue', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({uri})
-        });
-        if (res.ok) {
-          alert('Track queued!');
-        } else {
-          const error = await res.json();
-          alert('Error: ' + JSON.stringify(error));
-        }
-      }
-      </script>
-    </body>
-    </html>
-    '''
-
 
 @app.route('/search')
 def search():
@@ -200,6 +144,58 @@ def queue_track():
 
     if r.status_code == 204:
         return jsonify({'status': 'queued'})
+    else:
+        try:
+            error_data = r.json()
+        except ValueError:
+            error_data = r.text
+        return jsonify({'error': error_data, 'status_code': r.status_code}), r.status_code
+
+
+@app.route('/current-track')
+def current_track():
+    token = get_access_token()
+    headers = {'Authorization': f'Bearer {token}'}
+    r = requests.get('https://api.spotify.com/v1/me/player/currently-playing', headers=headers)
+    
+    if r.status_code == 200:
+        data = r.json()
+        # Add calculated progress percentage
+        if data and 'progress_ms' in data and 'item' in data and data['item']:
+            progress_ms = data['progress_ms']
+            duration_ms = data['item']['duration_ms']
+            progress_percentage = (progress_ms / duration_ms * 100) if duration_ms > 0 else 0
+            
+            # Add formatted time strings
+            def format_time(ms):
+                seconds = ms // 1000
+                minutes = seconds // 60
+                seconds = seconds % 60
+                return f"{minutes}:{seconds:02d}"
+            
+            data['progress_formatted'] = format_time(progress_ms)
+            data['duration_formatted'] = format_time(duration_ms)
+            data['progress_percentage'] = progress_percentage
+            
+        return jsonify(data)
+    elif r.status_code == 204:
+        return jsonify({'error': 'No track currently playing'}), 204
+    else:
+        try:
+            error_data = r.json()
+        except ValueError:
+            error_data = r.text
+        return jsonify({'error': error_data, 'status_code': r.status_code}), r.status_code
+
+
+@app.route('/get-queue')
+def get_queue():
+    token = get_access_token()
+    headers = {'Authorization': f'Bearer {token}'}
+    r = requests.get('https://api.spotify.com/v1/me/player/queue', headers=headers)
+    
+    if r.status_code == 200:
+        return jsonify(r.json())
     else:
         try:
             error_data = r.json()

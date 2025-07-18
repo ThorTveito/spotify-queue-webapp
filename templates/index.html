@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+    <title>Spotify Queue</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+  <div id="mainContainer">
+    <!-- Header -->
+    <header>
+      <h1>Spotify Queue</h1>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="mainContent">
+      <!-- Search Section -->
+      <div id="searchSection">
+        <h2>Search & Queue Tracks</h2>
+        <div id="searchContainer">
+          <input type="text" id="searchInput" placeholder="Search for a track..." />
+          <button id="clearSearchBtn" onclick="clearSearch()">×</button>
+        </div>
+        <div id="results"></div>
+      </div>
+    </main>
+
+    <!-- Queue Sidebar -->
+    <aside id="queueSidebar" class="queue-hidden">
+      <div id="queueHeader">
+        <h3>Queue</h3>
+        <button id="closeQueueBtn" onclick="toggleQueue()">×</button>
+      </div>
+      <div id="queueContent">
+        <div id="queueList">Loading queue...</div>
+        <div id="queueCount" style="text-align: center; margin-top: 10px; font-size: 12px; color: #666;"></div>
+      </div>
+    </aside>
+
+    <!-- Fixed Player at Bottom -->
+    <div id="currentTrack">
+      <div id="currentTrackInfo">Loading...</div>
+    </div>
+  </div>
+
+  <script>
+  let currentTrackId = null;
+  let autoRefreshInterval = null;
+  let progressUpdateInterval = null;
+  let queueRefreshInterval = null;
+  let trackStartTime = null;
+  let initialProgress = 0;
+  let trackDuration = 0;
+  let isPlaying = false;
+  let lastPauseTime = null;
+  let pausedDuration = 0;
+  let isQueueVisible = false;
+
+  // Get CSS custom property values
+  function getCSSVar(varName) {
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  }
+
+  // Load current track on page load
+  window.onload = function() {
+    getCurrentTrack();
+    // Auto-refresh every 20 seconds (infrequent since we calculate progress locally)
+    autoRefreshInterval = setInterval(getCurrentTrack, 20000);
+    // Update progress bar every 500ms for smooth animation
+    progressUpdateInterval = setInterval(updateProgressLocally, 500);
+    // Update queue every 2 minutes (queue changes less frequently)
+    queueRefreshInterval = setInterval(getQueue, 120000);
+    
+    // Add event listeners for search functionality
+    setupSearchListeners();
+  };
+
+  function setupSearchListeners() {
+    const searchInput = document.getElementById('searchInput');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    
+    // Listen for Enter key press
+    searchInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        search();
+      }
+    });
+    
+    // Show/hide clear button based on input content
+    searchInput.addEventListener('input', function(e) {
+      const resultsDiv = document.getElementById('results');
+      if (e.target.value.length > 0) {
+        clearBtn.style.display = 'flex';
+      } else {
+        clearBtn.style.display = 'none';
+        // Clear results when input is empty
+        resultsDiv.innerHTML = '';
+        resultsDiv.classList.remove('has-results');
+      }
+    });
+  }
+
+  function clearSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    const results = document.getElementById('results');
+    
+    searchInput.value = '';
+    clearBtn.style.display = 'none';
+    results.innerHTML = '';
+    results.classList.remove('has-results');
+    searchInput.focus();
+  }
+
+  function toggleQueue() {
+    const sidebar = document.getElementById('queueSidebar');
+    const mainContent = document.getElementById('mainContent');
+    const bottomQueueBtn = document.getElementById('bottomQueueBtn');
+    
+    isQueueVisible = !isQueueVisible;
+    
+    if (isQueueVisible) {
+      sidebar.classList.add('queue-visible');
+      sidebar.classList.remove('queue-hidden');
+      mainContent.classList.add('queue-open');
+      if (bottomQueueBtn) bottomQueueBtn.textContent = 'Hide Queue';
+      getQueue(); // Load queue when opening
+    } else {
+      sidebar.classList.remove('queue-visible');
+      sidebar.classList.add('queue-hidden');
+      mainContent.classList.remove('queue-open');
+      if (bottomQueueBtn) bottomQueueBtn.textContent = 'Show Queue';
+    }
+  }
+
+  async function getQueue() {
+    try {
+      const res = await fetch('/get-queue');
+      const queueList = document.getElementById('queueList');
+      const queueCount = document.getElementById('queueCount');
+      
+      if (!res.ok) {
+        queueList.innerHTML = '<p>Error loading queue</p>';
+        return;
+      }
+      
+      const data = await res.json();
+      const queue = data.queue || [];
+      
+      queueList.innerHTML = '';
+      
+      if (queue.length === 0) {
+        queueList.innerHTML = '<p style="text-align: center; color: #ccc;">Queue is empty</p>';
+        queueCount.textContent = '';
+        return;
+      }
+      
+      // Show first 10 tracks
+      const displayCount = Math.min(queue.length, 10);
+      const remainingCount = Math.max(queue.length - 10, 0);
+      
+      for (let i = 0; i < displayCount; i++) {
+        const track = queue[i];
+        const div = document.createElement('div');
+        div.className = 'queue-item';
+        
+        const artists = track.artists.map(a => a.name).join(', ');
+        const albumImage = track.album.images[2]?.url || track.album.images[0]?.url || '';
+        
+        div.innerHTML = `
+          ${albumImage ? `<img src="${albumImage}" alt="Album cover">` : ''}
+          <div class="queue-item-info">
+            <div class="queue-item-title">${track.name}</div>
+            <div class="queue-item-artist">${artists}</div>
+          </div>
+        `;
+        
+        queueList.appendChild(div);
+      }
+      
+      if (remainingCount > 0) {
+        queueCount.textContent = `+${remainingCount} more tracks in queue`;
+      } else {
+        queueCount.textContent = '';
+      }
+      
+    } catch (error) {
+      console.error('Error fetching queue:', error);
+      document.getElementById('queueList').innerHTML = '<p>Error loading queue</p>';
+    }
+  }
+
+  function updateProgressLocally() {
+    if (!currentTrackId || !trackStartTime || !isPlaying || trackDuration === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const timePlaying = now - trackStartTime - pausedDuration;
+    const currentProgress = initialProgress + timePlaying;
+    
+    // Check if song has ended
+    if (currentProgress >= trackDuration) {
+      // Song has ended, stop local updates and wait for API
+      const progressBar = document.querySelector('#currentTrackInfo .progress-fill');
+      if (progressBar) {
+        progressBar.style.width = '100%';
+      }
+      
+      const timeDisplay = document.querySelector('#currentTrackInfo .current-time');
+      if (timeDisplay) {
+        timeDisplay.textContent = formatTime(trackDuration);
+      }
+      
+      // Stop local tracking until API provides new track info
+      isPlaying = false;
+      console.log('Song ended, waiting for next track...');
+      return;
+    }
+    
+    // Normal progress update
+    const progressPercentage = (currentProgress / trackDuration) * 100;
+    
+    // Update progress bar
+    const progressBar = document.querySelector('#currentTrackInfo .progress-fill');
+    if (progressBar) {
+      progressBar.style.width = progressPercentage + '%';
+    }
+    
+    // Update time display
+    const timeDisplay = document.querySelector('#currentTrackInfo .current-time');
+    if (timeDisplay) {
+      timeDisplay.textContent = formatTime(currentProgress);
+    }
+  }
+
+  function formatTime(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  }
+
+  async function getCurrentTrack() {
+    try {
+      const res = await fetch('/current-track');
+      const currentTrackInfo = document.getElementById('currentTrackInfo');
+      
+      if (res.status === 204) {
+        currentTrackInfo.innerHTML = '<p style="text-align: center;">No track currently playing</p>';
+        currentTrackId = null;
+        resetProgressTracking();
+        return;
+      }
+      
+      if (!res.ok) {
+        currentTrackInfo.innerHTML = '<p style="text-align: center;">Error loading current track</p>';
+        return;
+      }
+      
+      const data = await res.json();
+      if (data.item) {
+        const track = data.item;
+        const artists = track.artists.map(artist => artist.name).join(', ');
+        const albumImage = track.album.images[0]?.url || '';
+        
+        // Check if this is a new track or playback state changed
+        const wasPlaying = isPlaying;
+        const newIsPlaying = data.is_playing;
+        
+        if (currentTrackId !== track.id) {
+          currentTrackId = track.id;
+          console.log('New track detected:', track.name);
+          setupProgressTracking(data.progress_ms, data.item.duration_ms, newIsPlaying);
+        } else if (wasPlaying !== newIsPlaying) {
+          // Playback state changed (play/pause)
+          handlePlaybackStateChange(newIsPlaying);
+        } else {
+          // Same track, sync progress with API data
+          syncProgressWithAPI(data.progress_ms, newIsPlaying);
+        }
+        
+        // Create progress bar with local calculation
+        const progressBar = `
+          <div style="width: 100%; background-color: #333; border-radius: 2px; margin: 3px 0;">
+            <div class="progress-fill" style="width: ${data.progress_percentage || 0}%; background-color: var(--spotify-green); height: 4px; border-radius: 2px; transition: width 0.3s ease;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #b3b3b3;">
+            <span class="current-time">${data.progress_formatted || '0:00'}</span>
+            <span style="color: ${data.is_playing ? 'var(--spotify-green)' : '#666'}; font-size: 9px;">${data.is_playing ? '▶' : '⏸'}</span>
+            <span>${data.duration_formatted || '0:00'}</span>
+          </div>
+        `;
+        
+        currentTrackInfo.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 15px;">
+            <!-- Left side: Album cover + track info -->
+            <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0; min-width: 0;">
+              <div style="display: flex; flex-direction: column; align-items: center; flex-shrink: 0;">
+                ${albumImage ? `<img src="${albumImage}" alt="Album cover" style="width: 42px; height: 42px; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">` : ''}
+                <div style="font-size: 7px; color: #888; margin-top: 1px; text-align: center; width: 42px; line-height: 1.1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${track.album.name}</div>
+              </div>
+              <div style="min-width: 0;">
+                <div style="font-size: 12px; font-weight: 600; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: white;">${track.name}</div>
+                <div style="font-size: 10px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">by ${artists}</div>
+              </div>
+            </div>
+            
+            <!-- Center: Progress bar (fixed width, centered) -->
+            <div style="width: 240px; flex-shrink: 0;">
+              ${progressBar}
+            </div>
+            
+            <!-- Right side: Queue button -->
+            <div style="flex-shrink: 0;">
+              <button id="bottomQueueBtn" onclick="toggleQueue()" style="background-color: var(--spotify-green); color: white; border: none; padding: 5px 10px; border-radius: 14px; cursor: pointer; font-size: 10px; font-weight: 600; width: 75px; text-align: center;">
+                ${isQueueVisible ? 'Hide Queue' : 'Show Queue'}
+              </button>
+            </div>
+          </div>
+        `;
+      } else {
+        currentTrackInfo.innerHTML = '<p style="text-align: center;">No track currently playing</p>';
+        currentTrackId = null;
+        resetProgressTracking();
+      }
+    } catch (error) {
+      console.error('Error fetching current track:', error);
+      document.getElementById('currentTrackInfo').innerHTML = '<p style="text-align: center;">Error loading current track</p>';
+    }
+  }
+
+  function setupProgressTracking(progressMs, durationMs, playing) {
+    trackStartTime = Date.now();
+    initialProgress = progressMs;
+    trackDuration = durationMs;
+    isPlaying = playing;
+    pausedDuration = 0;
+    lastPauseTime = null;
+  }
+
+  function syncProgressWithAPI(apiProgressMs, playing) {
+    // Sync local progress with API data
+    trackStartTime = Date.now();
+    initialProgress = apiProgressMs;
+    isPlaying = playing;
+    pausedDuration = 0;
+    lastPauseTime = null;
+    
+    // Immediately update the progress bar with API data
+    const progressPercentage = trackDuration > 0 ? (apiProgressMs / trackDuration) * 100 : 0;
+    const progressBar = document.querySelector('#currentTrackInfo .progress-fill');
+    if (progressBar) {
+      progressBar.style.width = progressPercentage + '%';
+    }
+    
+    const timeDisplay = document.querySelector('#currentTrackInfo .current-time');
+    if (timeDisplay) {
+      timeDisplay.textContent = formatTime(apiProgressMs);
+    }
+  }
+
+  function handlePlaybackStateChange(newIsPlaying) {
+    if (newIsPlaying && !isPlaying) {
+      // Resumed playing
+      if (lastPauseTime) {
+        pausedDuration += Date.now() - lastPauseTime;
+      }
+      isPlaying = true;
+      lastPauseTime = null;
+    } else if (!newIsPlaying && isPlaying) {
+      // Paused
+      isPlaying = false;
+      lastPauseTime = Date.now();
+    }
+  }
+
+  function resetProgressTracking() {
+    trackStartTime = null;
+    initialProgress = 0;
+    trackDuration = 0;
+    isPlaying = false;
+    lastPauseTime = null;
+    pausedDuration = 0;
+  }
+
+  // Stop auto-refresh when page is about to unload
+  window.addEventListener('beforeunload', function() {
+    if (autoRefreshInterval) {
+      clearInterval(autoRefreshInterval);
+    }
+    if (progressUpdateInterval) {
+      clearInterval(progressUpdateInterval);
+    }
+    if (queueRefreshInterval) {
+      clearInterval(queueRefreshInterval);
+    }
+  });
+
+  async function search() {
+    const query = document.getElementById('searchInput').value;
+    const resultsDiv = document.getElementById('results');
+    
+    if (!query.trim()) {
+      resultsDiv.innerHTML = '';
+      resultsDiv.classList.remove('has-results');
+      return;
+    }
+    
+    const res = await fetch('/search?q=' + encodeURIComponent(query));
+    if (!res.ok) {
+      alert('Search failed: ' + res.status);
+      return;
+    }
+    const data = await res.json();
+    const tracks = data.tracks.items;
+    
+    resultsDiv.innerHTML = '';
+    
+    if (tracks.length === 0) {
+      resultsDiv.classList.remove('has-results');
+      return;
+    }
+    
+    resultsDiv.classList.add('has-results');
+
+    tracks.forEach(track => {
+      const div = document.createElement('div');
+      div.className = 'result-item';
+      const artists = track.artists.map(a => a.name).join(', ');
+      const albumImage = track.album.images[0]?.url || '';
+      
+      div.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 15px; padding: 12px; border-bottom: 1px solid #333;">
+          ${albumImage ? `<img src="${albumImage}" alt="Album cover" style="width: 50px; height: 50px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">` : ''}
+          <div style="flex: 1;">
+            <div style="font-size: 14px; font-weight: 600; margin-bottom: 2px; color: white;">${track.name}</div>
+            <div style="font-size: 12px; color: #b3b3b3; margin-bottom: 2px;">by ${artists}</div>
+            <div style="font-size: 11px; color: #888;">Album: ${track.album.name}</div>
+          </div>
+          <button onclick="queueTrack('${track.uri}')" style="background-color: var(--spotify-green); color: white; border: none; padding: 6px 12px; border-radius: 16px; cursor: pointer; font-size: 12px; font-weight: 600; pointer-events: all;">Queue</button>
+        </div>
+      `;
+      resultsDiv.appendChild(div);
+    });
+  }
+
+  async function queueTrack(uri) {
+    const res = await fetch('/queue', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({uri})
+    });
+    if (res.ok) {
+      alert('Track queued!');
+    } else {
+      const error = await res.json();
+      alert('Error: ' + JSON.stringify(error));
+    }
+  }
+  </script>
+</body>
+</html>
