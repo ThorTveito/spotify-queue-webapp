@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Start Docker Compose
-        run: docker-compose up -d
+        run: docker compose up -d
 
       - name: Check /health endpoint returns 200
         run: curl -fs http://localhost:8080/health
