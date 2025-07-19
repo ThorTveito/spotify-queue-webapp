@@ -1,0 +1,26 @@
+name: Build and deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Docker Build
+        run: docker compose build
+
+      - name: Start Docker Compose
+        # start the docker contianer and wait 10 sec for container to be healty
+        run: docker compose up -d --wait --wait-timeout 10
+      
+      - name: Show Docker logs (on failure)
+        if: failure()
+        run: docker compose logs

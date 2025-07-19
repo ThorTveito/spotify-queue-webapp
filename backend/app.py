@@ -13,6 +13,8 @@ app.secret_key = os.urandom(24)
 
 load_dotenv()  # load values from .env into environment variables
 
+from typing import Literal
+ENV_NAME = os.getenv('ENV_NAME', 'DEV')
 CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
@@ -203,7 +205,17 @@ def get_queue():
             error_data = r.text
         return jsonify({'error': error_data, 'status_code': r.status_code}), r.status_code
 
+@app.route('/health')
+def health():
+    return "", 200
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
-
+    print(f"Starting server as {ENV_NAME}")
+    if (ENV_NAME == 'PROD'):
+        from waitress import serve
+        serve(app, host='0.0.0.0', port=8080)
+    elif (ENV_NAME == 'DEV'):
+        app.run(debug=True)
+    else:
+        print(f"Unknown ENV_NAME {ENV_NAME}")
