@@ -17,5 +17,8 @@ jobs:
       - name: Start Docker Compose
         run: docker compose up -d
 
+      - name: List docker containers
+        run: docker ps
+
       - name: Check /health endpoint returns 200
-        run: curl -fs http://localhost:8080/health
+        run: curl -f http://localhost:8080/health
