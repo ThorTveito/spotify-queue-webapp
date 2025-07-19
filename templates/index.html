@@ -2,44 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spotify Queue</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <!-- Google Icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
 </head>
 <body>
   <div id="mainContainer">
-    <!-- Header -->
-    <header>
-      <h1>Spotify Queue</h1>
+    <!-- Mobile Header with Logo -->
+    <header id="mobileHeader">
+      <div id="logo">🎵 Queue</div>
     </header>
 
-    <!-- Main Content Area -->
-    <main id="mainContent">
-      <!-- Search Section -->
-      <div id="searchSection">
-        <h2>Search & Queue Tracks</h2>
-        <div id="searchContainer">
-          <input type="text" id="searchInput" placeholder="Search for a track..." />
-          <button id="clearSearchBtn" onclick="clearSearch()">×</button>
-        </div>
-        <div id="results"></div>
+    <!-- Search Section (Mobile First) -->
+    <div id="searchSection">
+      <div id="searchContainer">
+        <input 
+          type="search" 
+          id="searchInput" 
+          placeholder="Search for tracks..." 
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          enterkeyhint="search"
+          style="-webkit-appearance: none;"
+        />
+        <button id="clearSearchBtn" onclick="clearSearch()">×</button>
       </div>
+    </div>
+
+    <!-- Search Results (Outside search section to avoid z-index issues) -->
+    <div id="results"></div>
+
+    <!-- Main Content Area (Queue when visible) -->
+    <main id="mainContent">
+      <div id="mobileQueueList">Loading queue...</div>
+      <div id="mobileQueueCount"></div>
     </main>
 
-    <!-- Queue Sidebar -->
+    <!-- Desktop Queue Sidebar -->
     <aside id="queueSidebar" class="queue-hidden">
       <div id="queueHeader">
         <h3>Queue</h3>
         <button id="closeQueueBtn" onclick="toggleQueue()">×</button>
       </div>
       <div id="queueContent">
-        <div id="queueList">Loading queue...</div>
-        <div id="queueCount" style="text-align: center; margin-top: 10px; font-size: 12px; color: #666;"></div>
+        <div id="desktopQueueList">Loading queue...</div>
+        <div id="desktopQueueCount"></div>
       </div>
     </aside>
 
     <!-- Fixed Player at Bottom -->
     <div id="currentTrack">
-      <div id="currentTrackInfo">Loading...</div>
+      <div id="playerControls">
+        <button id="queueToggleBtn" onclick="toggleQueue()">
+          <span class="material-symbols-outlined">queue_music</span>
+        </button>
+        <div id="trackInfo">
+          <div id="trackCover"></div>
+          <div id="trackDetails">
+            <div id="trackName">Loading...</div>
+            <div id="trackArtist"></div>
+          </div>
+        </div>
+      </div>
+      <div id="progressContainer">
+        <div id="progressBar">
+          <div id="progressFill"></div>
+        </div>
+        <div id="timeInfo">
+          <span id="currentTime">0:00</span>
+          <span id="playPauseStatus">•</span>
+          <span id="totalTime">0:00</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -48,6 +86,9 @@
   let autoRefreshInterval = null;
   let progressUpdateInterval = null;
   let queueRefreshInterval = null;
+  let lastQueueToggleTime = 0;
+  let lastQueueCallTime = 0;
+  let isQueueToggling = false;
   let trackStartTime = null;
   let initialProgress = 0;
   let trackDuration = 0;
@@ -63,33 +104,98 @@
 
   // Load current track on page load
   window.onload = function() {
+    // Initialize queue as hidden for both mobile and desktop
+    const mainContent = document.getElementById('mainContent');
+    const queueSidebar = document.getElementById('queueSidebar');
+    const searchSection = document.getElementById('searchSection');
+    
+    // Reset all queue-related classes and states
+    mainContent.classList.add('queue-hidden');
+    mainContent.classList.remove('search-hidden');
+    queueSidebar.classList.add('queue-hidden');
+    queueSidebar.classList.remove('queue-visible');
+    searchSection.classList.remove('queue-open', 'queue-open-mobile');
+    isQueueVisible = false;
+    
+    // Clear any existing intervals
+    if (queueRefreshInterval) {
+      clearInterval(queueRefreshInterval);
+      queueRefreshInterval = null;
+    }
+    
     getCurrentTrack();
     // Auto-refresh every 20 seconds (infrequent since we calculate progress locally)
     autoRefreshInterval = setInterval(getCurrentTrack, 20000);
     // Update progress bar every 500ms for smooth animation
     progressUpdateInterval = setInterval(updateProgressLocally, 500);
-    // Update queue every 2 minutes (queue changes less frequently)
-    queueRefreshInterval = setInterval(getQueue, 120000);
+    // NOTE: Queue refresh interval is now managed by toggleQueue() function
     
     // Add event listeners for search functionality
     setupSearchListeners();
+    
+    // Handle window resize to adjust layout
+    window.addEventListener('resize', handleResize);
   };
+  
+  function handleResize() {
+    // Reset queue state when switching between mobile and desktop
+    if (isQueueVisible) {
+      const isMobile = window.innerWidth < 768;
+      const mainContent = document.getElementById('mainContent');
+      const queueSidebar = document.getElementById('queueSidebar');
+      const searchSection = document.getElementById('searchSection');
+      
+      if (isMobile) {
+        // Switch to mobile layout
+        queueSidebar.classList.remove('queue-visible');
+        queueSidebar.classList.add('queue-hidden');
+        searchSection.classList.remove('queue-open');
+        mainContent.classList.remove('queue-hidden');
+      } else {
+        // Switch to desktop layout
+        mainContent.classList.add('queue-hidden');
+        queueSidebar.classList.add('queue-visible');
+        queueSidebar.classList.remove('queue-hidden');
+        searchSection.classList.add('queue-open');
+      }
+    }
+  }
 
   function setupSearchListeners() {
     const searchInput = document.getElementById('searchInput');
     const clearBtn = document.getElementById('clearSearchBtn');
     
-    // Listen for Enter key press
-    searchInput.addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') {
+    // Simplified event handling - just use keydown for Enter
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.keyCode === 13) {
+        e.preventDefault();
+        console.log('Search triggered by Enter key');
         search();
+        // Blur on mobile to hide keyboard
+        if (window.innerWidth < 768) {
+          setTimeout(() => {
+            searchInput.blur();
+          }, 100);
+        }
+      }
+    });
+    
+    // Listen for search event (mobile keyboard search button)
+    searchInput.addEventListener('search', function(e) {
+      console.log('Search triggered by search event');
+      search();
+      // Blur on mobile to hide keyboard
+      if (window.innerWidth < 768) {
+        setTimeout(() => {
+          searchInput.blur();
+        }, 100);
       }
     });
     
     // Show/hide clear button based on input content
     searchInput.addEventListener('input', function(e) {
       const resultsDiv = document.getElementById('results');
-      if (e.target.value.length > 0) {
+      if (e.target.value.trim().length > 0) {
         clearBtn.style.display = 'flex';
       } else {
         clearBtn.style.display = 'none';
@@ -113,45 +219,119 @@
   }
 
   function toggleQueue() {
-    const sidebar = document.getElementById('queueSidebar');
-    const mainContent = document.getElementById('mainContent');
-    const bottomQueueBtn = document.getElementById('bottomQueueBtn');
+    const currentTime = Date.now();
     
-    isQueueVisible = !isQueueVisible;
-    
-    if (isQueueVisible) {
-      sidebar.classList.add('queue-visible');
-      sidebar.classList.remove('queue-hidden');
-      mainContent.classList.add('queue-open');
-      if (bottomQueueBtn) bottomQueueBtn.textContent = 'Hide Queue';
-      getQueue(); // Load queue when opening
-    } else {
-      sidebar.classList.remove('queue-visible');
-      sidebar.classList.add('queue-hidden');
-      mainContent.classList.remove('queue-open');
-      if (bottomQueueBtn) bottomQueueBtn.textContent = 'Show Queue';
+    // Debounce: Prevent rapid toggling (minimum 500ms between toggles)
+    if (isQueueToggling || (currentTime - lastQueueToggleTime < 500)) {
+      console.log('Toggle blocked by debounce');
+      return;
     }
+    
+    isQueueToggling = true;
+    lastQueueToggleTime = currentTime;
+    
+    console.log('toggleQueue called - current state:', isQueueVisible);
+    
+    const isMobile = window.innerWidth < 768;
+    
+    if (isMobile) {
+      // Mobile layout
+      const mainContent = document.getElementById('mainContent');
+      const searchSection = document.getElementById('searchSection');
+      const queueBtn = document.getElementById('queueToggleBtn');
+      
+      isQueueVisible = !isQueueVisible;
+      console.log('Mobile toggle - new state:', isQueueVisible);
+      
+      if (isQueueVisible) {
+        console.log('Showing mobile queue');
+        mainContent.classList.remove('queue-hidden');
+        mainContent.classList.add('search-hidden');
+        searchSection.classList.add('queue-open-mobile');
+        if (queueBtn) queueBtn.style.color = 'white';
+        
+        // Load queue when opening (with rate limiting) - only call once
+        if (currentTime - lastQueueCallTime > 5000) {
+          getQueue();
+          lastQueueCallTime = currentTime;
+        }
+      } else {
+        console.log('Hiding mobile queue');
+        mainContent.classList.add('queue-hidden');
+        mainContent.classList.remove('search-hidden');
+        searchSection.classList.remove('queue-open-mobile');
+        if (queueBtn) queueBtn.style.color = getCSSVar('--spotify-green');
+      }
+    } else {
+      // Desktop layout
+      const sidebar = document.getElementById('queueSidebar');
+      const searchSection = document.getElementById('searchSection');
+      const queueBtn = document.getElementById('queueToggleBtn');
+      
+      isQueueVisible = !isQueueVisible;
+      console.log('Desktop toggle - new state:', isQueueVisible);
+      
+      if (isQueueVisible) {
+        console.log('Showing desktop queue');
+        sidebar.classList.add('queue-visible');
+        sidebar.classList.remove('queue-hidden');
+        searchSection.classList.add('queue-open');
+        if (queueBtn) {
+          queueBtn.classList.add('active');
+        }
+        
+        // Load queue when opening (with rate limiting) - only call once
+        if (currentTime - lastQueueCallTime > 5000) {
+          getQueue();
+          lastQueueCallTime = currentTime;
+        }
+      } else {
+        console.log('Hiding desktop queue');
+        sidebar.classList.remove('queue-visible');
+        sidebar.classList.add('queue-hidden');
+        searchSection.classList.remove('queue-open');
+        if (queueBtn) {
+          queueBtn.classList.remove('active');
+        }
+      }
+    }
+    
+    // Manage queue refresh interval - only start if queue is visible and not already running
+    if (isQueueVisible && !queueRefreshInterval) {
+      // Start queue refresh interval (every 2 minutes)
+      queueRefreshInterval = setInterval(() => {
+        const now = Date.now();
+        if (now - lastQueueCallTime > 5000) { // Rate limit check
+          getQueue();
+          lastQueueCallTime = now;
+        }
+      }, 120000);
+    } else if (!isQueueVisible && queueRefreshInterval) {
+      // Stop queue refresh interval when closing
+      clearInterval(queueRefreshInterval);
+      queueRefreshInterval = null;
+    }
+    
+    // Reset toggle flag after animation completes
+    setTimeout(() => {
+      isQueueToggling = false;
+    }, 300);
   }
 
   async function getQueue() {
     try {
       const res = await fetch('/get-queue');
-      const queueList = document.getElementById('queueList');
-      const queueCount = document.getElementById('queueCount');
       
       if (!res.ok) {
-        queueList.innerHTML = '<p>Error loading queue</p>';
+        updateQueueUI('<p>Error loading queue</p>', '');
         return;
       }
       
       const data = await res.json();
       const queue = data.queue || [];
       
-      queueList.innerHTML = '';
-      
       if (queue.length === 0) {
-        queueList.innerHTML = '<p style="text-align: center; color: #ccc;">Queue is empty</p>';
-        queueCount.textContent = '';
+        updateQueueUI('<p style="text-align: center; color: #ccc;">Queue is empty</p>', '');
         return;
       }
       
@@ -159,34 +339,53 @@
       const displayCount = Math.min(queue.length, 10);
       const remainingCount = Math.max(queue.length - 10, 0);
       
+      let queueHTML = '';
       for (let i = 0; i < displayCount; i++) {
         const track = queue[i];
-        const div = document.createElement('div');
-        div.className = 'queue-item';
-        
         const artists = track.artists.map(a => a.name).join(', ');
         const albumImage = track.album.images[2]?.url || track.album.images[0]?.url || '';
         
-        div.innerHTML = `
-          ${albumImage ? `<img src="${albumImage}" alt="Album cover">` : ''}
-          <div class="queue-item-info">
-            <div class="queue-item-title">${track.name}</div>
-            <div class="queue-item-artist">${artists}</div>
+        queueHTML += `
+          <div class="queue-item">
+            ${albumImage ? `<img src="${albumImage}" alt="Album cover">` : ''}
+            <div class="queue-item-info">
+              <div class="queue-item-title">${track.name}</div>
+              <div class="queue-item-artist">${artists}</div>
+            </div>
           </div>
         `;
-        
-        queueList.appendChild(div);
       }
       
-      if (remainingCount > 0) {
-        queueCount.textContent = `+${remainingCount} more tracks in queue`;
-      } else {
-        queueCount.textContent = '';
-      }
+      const countText = remainingCount > 0 ? `+${remainingCount} more tracks in queue` : '';
+      updateQueueUI(queueHTML, countText);
       
     } catch (error) {
       console.error('Error fetching queue:', error);
-      document.getElementById('queueList').innerHTML = '<p>Error loading queue</p>';
+      updateQueueUI('<p>Error loading queue</p>', '');
+    }
+  }
+  
+  function updateQueueUI(queueHTML, countText) {
+    // Update mobile queue
+    const mobileQueueList = document.getElementById('mobileQueueList');
+    const mobileQueueCount = document.getElementById('mobileQueueCount');
+    
+    if (mobileQueueList) {
+      mobileQueueList.innerHTML = queueHTML;
+    }
+    if (mobileQueueCount) {
+      mobileQueueCount.textContent = countText;
+    }
+    
+    // Update desktop queue
+    const desktopQueueList = document.getElementById('desktopQueueList');
+    const desktopQueueCount = document.getElementById('desktopQueueCount');
+    
+    if (desktopQueueList) {
+      desktopQueueList.innerHTML = queueHTML;
+    }
+    if (desktopQueueCount) {
+      desktopQueueCount.textContent = countText;
     }
   }
 
@@ -202,14 +401,14 @@
     // Check if song has ended
     if (currentProgress >= trackDuration) {
       // Song has ended, stop local updates and wait for API
-      const progressBar = document.querySelector('#currentTrackInfo .progress-fill');
-      if (progressBar) {
-        progressBar.style.width = '100%';
+      const progressFill = document.getElementById('progressFill');
+      if (progressFill) {
+        progressFill.style.width = '100%';
       }
       
-      const timeDisplay = document.querySelector('#currentTrackInfo .current-time');
-      if (timeDisplay) {
-        timeDisplay.textContent = formatTime(trackDuration);
+      const currentTimeElement = document.getElementById('currentTime');
+      if (currentTimeElement) {
+        currentTimeElement.textContent = formatTime(trackDuration);
       }
       
       // Stop local tracking until API provides new track info
@@ -222,15 +421,15 @@
     const progressPercentage = (currentProgress / trackDuration) * 100;
     
     // Update progress bar
-    const progressBar = document.querySelector('#currentTrackInfo .progress-fill');
-    if (progressBar) {
-      progressBar.style.width = progressPercentage + '%';
+    const progressFill = document.getElementById('progressFill');
+    if (progressFill) {
+      progressFill.style.width = progressPercentage + '%';
     }
     
     // Update time display
-    const timeDisplay = document.querySelector('#currentTrackInfo .current-time');
-    if (timeDisplay) {
-      timeDisplay.textContent = formatTime(currentProgress);
+    const currentTimeElement = document.getElementById('currentTime');
+    if (currentTimeElement) {
+      currentTimeElement.textContent = formatTime(currentProgress);
     }
   }
 
@@ -244,17 +443,16 @@
   async function getCurrentTrack() {
     try {
       const res = await fetch('/current-track');
-      const currentTrackInfo = document.getElementById('currentTrackInfo');
       
       if (res.status === 204) {
-        currentTrackInfo.innerHTML = '<p style="text-align: center;">No track currently playing</p>';
+        updatePlayerUI(null);
         currentTrackId = null;
         resetProgressTracking();
         return;
       }
       
       if (!res.ok) {
-        currentTrackInfo.innerHTML = '<p style="text-align: center;">Error loading current track</p>';
+        updatePlayerUI({ error: 'Error loading current track' });
         return;
       }
       
@@ -280,54 +478,77 @@
           syncProgressWithAPI(data.progress_ms, newIsPlaying);
         }
         
-        // Create progress bar with local calculation
-        const progressBar = `
-          <div style="width: 100%; background-color: #333; border-radius: 2px; margin: 3px 0;">
-            <div class="progress-fill" style="width: ${data.progress_percentage || 0}%; background-color: var(--spotify-green); height: 4px; border-radius: 2px; transition: width 0.3s ease;"></div>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #b3b3b3;">
-            <span class="current-time">${data.progress_formatted || '0:00'}</span>
-            <span style="color: ${data.is_playing ? 'var(--spotify-green)' : '#666'}; font-size: 9px;">${data.is_playing ? '▶' : '⏸'}</span>
-            <span>${data.duration_formatted || '0:00'}</span>
-          </div>
-        `;
+        // Update mobile player UI
+        updatePlayerUI({
+          name: track.name,
+          artist: artists,
+          album: track.album.name,
+          image: albumImage,
+          progress: data.progress_percentage || 0,
+          currentTime: data.progress_formatted || '0:00',
+          totalTime: data.duration_formatted || '0:00',
+          isPlaying: newIsPlaying
+        });
         
-        currentTrackInfo.innerHTML = `
-          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 15px;">
-            <!-- Left side: Album cover + track info -->
-            <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0; min-width: 0;">
-              <div style="display: flex; flex-direction: column; align-items: center; flex-shrink: 0;">
-                ${albumImage ? `<img src="${albumImage}" alt="Album cover" style="width: 42px; height: 42px; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">` : ''}
-                <div style="font-size: 7px; color: #888; margin-top: 1px; text-align: center; width: 42px; line-height: 1.1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${track.album.name}</div>
-              </div>
-              <div style="min-width: 0;">
-                <div style="font-size: 12px; font-weight: 600; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: white;">${track.name}</div>
-                <div style="font-size: 10px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">by ${artists}</div>
-              </div>
-            </div>
-            
-            <!-- Center: Progress bar (fixed width, centered) -->
-            <div style="width: 240px; flex-shrink: 0;">
-              ${progressBar}
-            </div>
-            
-            <!-- Right side: Queue button -->
-            <div style="flex-shrink: 0;">
-              <button id="bottomQueueBtn" onclick="toggleQueue()" style="background-color: var(--spotify-green); color: white; border: none; padding: 5px 10px; border-radius: 14px; cursor: pointer; font-size: 10px; font-weight: 600; width: 75px; text-align: center;">
-                ${isQueueVisible ? 'Hide Queue' : 'Show Queue'}
-              </button>
-            </div>
-          </div>
-        `;
       } else {
-        currentTrackInfo.innerHTML = '<p style="text-align: center;">No track currently playing</p>';
+        updatePlayerUI(null);
         currentTrackId = null;
         resetProgressTracking();
       }
     } catch (error) {
       console.error('Error fetching current track:', error);
-      document.getElementById('currentTrackInfo').innerHTML = '<p style="text-align: center;">Error loading current track</p>';
+      updatePlayerUI({ error: 'Error loading current track' });
     }
+  }
+  
+  function updatePlayerUI(trackData) {
+    const trackCover = document.getElementById('trackCover');
+    const trackName = document.getElementById('trackName');
+    const trackArtist = document.getElementById('trackArtist');
+    const progressFill = document.getElementById('progressFill');
+    const currentTime = document.getElementById('currentTime');
+    const totalTime = document.getElementById('totalTime');
+    const playPauseStatus = document.getElementById('playPauseStatus');
+    
+    if (!trackData) {
+      // No track playing
+      trackCover.style.backgroundImage = '';
+      trackCover.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+      trackName.textContent = 'No track playing';
+      trackArtist.textContent = '';
+      progressFill.style.width = '0%';
+      currentTime.textContent = '0:00';
+      totalTime.textContent = '0:00';
+      playPauseStatus.textContent = '•';
+      return;
+    }
+    
+    if (trackData.error) {
+      trackName.textContent = trackData.error;
+      trackArtist.textContent = '';
+      return;
+    }
+    
+    // Update track info
+    if (trackData.image) {
+      trackCover.style.backgroundImage = `url(${trackData.image})`;
+      trackCover.style.backgroundColor = 'transparent';
+    } else {
+      trackCover.style.backgroundImage = '';
+      trackCover.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    }
+    
+    trackName.textContent = trackData.name || 'Unknown Track';
+    trackArtist.textContent = trackData.artist || 'Unknown Artist';
+    
+    // Update progress
+    if (typeof trackData.progress === 'number') {
+      progressFill.style.width = `${trackData.progress}%`;
+    }
+    
+    currentTime.textContent = trackData.currentTime || '0:00';
+    totalTime.textContent = trackData.totalTime || '0:00';
+    playPauseStatus.textContent = trackData.isPlaying ? '▶' : '⏸';
   }
 
   function setupProgressTracking(progressMs, durationMs, playing) {
@@ -401,48 +622,75 @@
     const query = document.getElementById('searchInput').value;
     const resultsDiv = document.getElementById('results');
     
+    console.log('Search function called with query:', query);
+    console.log('Results div found:', !!resultsDiv);
+    
     if (!query.trim()) {
       resultsDiv.innerHTML = '';
       resultsDiv.classList.remove('has-results');
       return;
     }
     
-    const res = await fetch('/search?q=' + encodeURIComponent(query));
-    if (!res.ok) {
-      alert('Search failed: ' + res.status);
-      return;
-    }
-    const data = await res.json();
-    const tracks = data.tracks.items;
-    
-    resultsDiv.innerHTML = '';
-    
-    if (tracks.length === 0) {
-      resultsDiv.classList.remove('has-results');
-      return;
-    }
-    
+    // Show loading state
+    resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #b3b3b3;">Searching...</div>';
     resultsDiv.classList.add('has-results');
+    console.log('Results div should now be visible with loading state');
+    
+    try {
+      const res = await fetch('/search?q=' + encodeURIComponent(query));
+      if (!res.ok) {
+        resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Search failed. Please try again.</div>';
+        return;
+      }
+      const data = await res.json();
+      const tracks = data.tracks.items;
+      
+      resultsDiv.innerHTML = '';
+      
+      if (tracks.length === 0) {
+        resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #b3b3b3;">No tracks found.</div>';
+        return;
+      }
 
-    tracks.forEach(track => {
+      tracks.forEach(track => {
       const div = document.createElement('div');
       div.className = 'result-item';
       const artists = track.artists.map(a => a.name).join(', ');
       const albumImage = track.album.images[0]?.url || '';
       
       div.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 15px; padding: 12px; border-bottom: 1px solid #333;">
-          ${albumImage ? `<img src="${albumImage}" alt="Album cover" style="width: 50px; height: 50px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">` : ''}
-          <div style="flex: 1;">
-            <div style="font-size: 14px; font-weight: 600; margin-bottom: 2px; color: white;">${track.name}</div>
-            <div style="font-size: 12px; color: #b3b3b3; margin-bottom: 2px;">by ${artists}</div>
-            <div style="font-size: 11px; color: #888;">Album: ${track.album.name}</div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 16px; background-color: rgba(0, 0, 0, 0.6); margin: 8px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); transition: all 0.2s ease; backdrop-filter: blur(8px);">
+          ${albumImage ? `<img src="${albumImage}" alt="Album cover" style="width: 48px; height: 48px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); flex-shrink: 0;">` : ''}
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${track.name}</div>
+            <div style="font-size: 12px; color: #b3b3b3; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">by ${artists}</div>
+            <div style="font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Album: ${track.album.name}</div>
           </div>
-          <button onclick="queueTrack('${track.uri}')" style="background-color: var(--spotify-green); color: white; border: none; padding: 6px 12px; border-radius: 16px; cursor: pointer; font-size: 12px; font-weight: 600; pointer-events: all;">Queue</button>
+          <button onclick="queueTrack('${track.uri}')" style="background-color: var(--spotify-green); color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 12px; font-weight: 600; pointer-events: all; transition: all 0.2s ease; flex-shrink: 0;">Queue</button>
         </div>
       `;
+      
+      // Add hover effect
+      div.addEventListener('mouseenter', function() {
+        const innerDiv = this.querySelector('div');
+        innerDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+        innerDiv.style.transform = 'translateY(-1px)';
+        innerDiv.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+      });
+      
+      div.addEventListener('mouseleave', function() {
+        const innerDiv = this.querySelector('div');
+        innerDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+        innerDiv.style.transform = 'translateY(0)';
+        innerDiv.style.boxShadow = 'none';
+      });
+      
       resultsDiv.appendChild(div);
     });
+    } catch (error) {
+      console.error('Search error:', error);
+      resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff6b6b;">Search failed. Please check your connection and try again.</div>';
+    }
   }
 
   async function queueTrack(uri) {
