@@ -14,8 +14,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Start Docker Compose
-        run: docker compose up -d
+      - name: Docker Build
+        run: docker compose build
 
-      - name: Check /health endpoint returns 200
-        run: curl -fs http://localhost:8080/health
+      - name: Start Docker Compose
+        # start the docker contianer and wait 10 sec for container to be healty
+        run: docker compose up -d --wait --wait-timeout 10
+      
+      - name: Show Docker logs (on failure)
+        if: failure()
+        run: docker compose logs
