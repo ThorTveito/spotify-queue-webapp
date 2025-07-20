@@ -15,8 +15,8 @@ body {
     background-color: rgb(245,185,48);
     margin: 0;
     padding: 0;
-    background-image: url('images/file.svg');
-    background-size: cover;
+    background-image: url('images/Bakgrunnsbilde-cropped.png');
+    background-size:10vh; 
     background-repeat: repeat;
     background-attachment: fixed;
     min-height: 100vh;
