@@ -412,8 +412,9 @@ body {
         padding: 0 40px;
     }
     
-    #logo {
-        font-size: 24px;
+    #logoPicture {
+        width: 50%;
+        color: purple;
     }
     
     /* Desktop Search Section */
