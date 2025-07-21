@@ -40,7 +40,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    position: fixed;
+    position: sticky;
     top: 0;
     left: 0;
     right: 0;
@@ -65,12 +65,14 @@ body {
 
 /* Search Section */
 #searchSection {
-    margin-top: var(--header-height);
+    margin-top: 0;
     padding: 10px 20px;
-    background-color: rgba(0, 0, 0, 0.8);
-    z-index: 90;
-    backdrop-filter: blur(10px);
+    background-color: transparent;
+    z-index: 110;
+    backdrop-filter: none;
     transition: opacity 0.3s ease, transform 0.3s ease;
+    position: sticky;
+    top: var(--header-height);
 }
 
 #searchSection.queue-open-mobile {
@@ -84,6 +86,7 @@ body {
     display: flex;
     position: relative;
     max-width: 100%;
+    z-index: 110;
 }
 
 #searchInput {
@@ -99,6 +102,10 @@ body {
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
+    cursor: text;
+    pointer-events: auto;
+    z-index: 110;
+    position: relative;
 }
 
 /* Hide the native search clear button */
@@ -156,19 +163,20 @@ body {
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     border: 1px solid #333;
-    z-index: 95;
+    z-index: 80;
     overflow: visible;
     display: none;
     padding: 0;
     width: 95%;
     max-width: 800px;
+    /* Removed max-height to allow dynamic sizing */
 }
 
 
 
 #results.has-results {
     display: block !important;
-    z-index: 95 !important;
+    z-index: 80 !important;
 }
 
 /* Hide search results when queue is open on mobile */
@@ -196,29 +204,39 @@ body {
 
 /* Make result items more compact */
 .result-item > div {
-    padding: 20px 24px !important;
-    gap: 16px !important;
+    padding: 16px 14px !important;
+    gap: 6px !important;
 }
 
 .result-item img {
-    width: 64px !important;
-    height: 64px !important;
-    border-radius: 8px !important;
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 3px !important;
 }
 
 .result-item .track-title {
-    font-size: 18px !important;
-    margin-bottom: 5px !important;
+    font-size: 12px !important;
+    margin-bottom: 0px !important;
+    line-height: 1.0 !important;
 }
 
 .result-item .track-artist {
-    font-size: 15px !important;
+    font-size: 9px !important;
+    margin-bottom: 0px !important;
+    line-height: 1.0 !important;
+}
+
+.result-item .track-album {
+    font-size: 8px !important;
+    color: #999 !important;
+    line-height: 1.0 !important;
+    margin-bottom: 0 !important;
 }
 
 .result-item button {
-    padding: 10px 20px !important;
-    font-size: 14px !important;
-    border-radius: 20px !important;
+    padding: 3px 6px !important;
+    font-size: 9px !important;
+    border-radius: 8px !important;
 }
 
 .result-item:hover {
@@ -433,6 +451,45 @@ body {
     /* Mobile styles - keep the current mobile layout */
     /* All current styles above apply to mobile */
     
+    /* Make search results larger and more readable on mobile */
+    .result-item > div {
+        padding: 20px 16px !important;
+        gap: 12px !important;
+    }
+    
+    .result-item img {
+        width: 45px !important;
+        height: 45px !important;
+        border-radius: 6px !important;
+    }
+    
+    .result-item .track-title {
+        font-size: 16px !important;
+        margin-bottom: 2px !important;
+        line-height: 1.2 !important;
+    }
+    
+    .result-item .track-artist {
+        font-size: 13px !important;
+        margin-bottom: 1px !important;
+        line-height: 1.2 !important;
+    }
+    
+    .result-item .track-album {
+        font-size: 11px !important;
+        color: #999 !important;
+        line-height: 1.2 !important;
+        margin-bottom: 0 !important;
+    }
+    
+    /* Make add buttons larger on mobile */
+    .result-item button {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+        border-radius: 12px !important;
+        min-width: 50px !important;
+    }
+    
     /* Hide desktop queue sidebar on mobile */
     #queueSidebar {
         display: none !important;
@@ -450,11 +507,13 @@ body {
     
     /* Desktop Header */
     #mobileHeader {
-        position: relative;
+        position: sticky;
+        top: 0;
         height: 80px;
         background-color: rgba(0, 0, 0, 0.8);
         justify-content: center;
         padding: 0 40px;
+        z-index: 100;
     }
     
     #logoPicture {
@@ -468,14 +527,14 @@ body {
     
     /* Desktop Search Section */
     #searchSection {
-        position: relative;
-        top: 0;
+        position: sticky;
+        top: 60px;
         height: auto;
         background-color: transparent;
         padding: 30px 40px 20px;
-        z-index: auto;
+        z-index: 110;
         backdrop-filter: none;
-        flex: 1;
+        flex: 0 0 auto;
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
@@ -489,7 +548,6 @@ body {
     }
     
     #searchSection::before {
-        content: "Search & Queue Tracks";
         display: block;
         text-align: center;
         color: #333;
@@ -501,15 +559,21 @@ body {
     #searchContainer {
         justify-content: center;
         margin-bottom: 20px;
+        width: 80vw;
+        z-index: 110;
     }
     
     #searchInput {
-        width: 350px;
+        width: 65%;
+        max-width: 60vw;
         border-radius: 6px;
-        max-width: none;
         margin: 0;
         padding: 10px 36px 10px 14px;
         font-size: 13px;
+        cursor: text;
+        pointer-events: auto;
+        z-index: 110;
+        position: relative;
     }
     
     /* Desktop Search Results */
@@ -527,8 +591,8 @@ body {
         backdrop-filter: none;
         padding: 0;
         margin-bottom: 80px;
-        width: 65%;
-        max-width: 800px;
+        width: 70%;
+        max-width: 65vw;
         margin-left: auto;
         margin-right: auto;
     }

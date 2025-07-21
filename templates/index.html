@@ -666,6 +666,7 @@
             <div style="flex: 1; min-width: 0;">
               <div class="track-title" style="font-size: 13px; font-weight: 600; margin-bottom: 2px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${track.name}</div>
               <div class="track-artist" style="font-size: 11px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">by ${artists}</div>
+              <div class="track-album" style="font-size: 10px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${track.album.name}</div>
             </div>
             <button onclick="queueTrack('${track.uri}')" style="background-color: var(--spotify-green); color: white; border: none; padding: 4px 10px; border-radius: 16px; cursor: pointer; font-size: 10px; font-weight: 600; pointer-events: all; transition: all 0.2s ease; flex-shrink: 0;">Add</button>
           </div>
